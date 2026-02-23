@@ -1,0 +1,108 @@
+# --- TASK1 Deployment ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: task1-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: task1
+  template:
+    metadata:
+      labels:
+        app: task1
+    spec:
+      containers:
+      - name: app
+        image: bistrulli/generic-microservice-tester:0.3
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: "1000m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "512Mi"
+        env:
+        - name: SERVICE_NAME
+          value: "task1"
+        - name: SERVICE_TIME_SECONDS
+          value: "0.5"
+        - name: OUTBOUND_CALLS
+          value: "SYNC:task2-svc:1.0"
+        - name: GUNICORN_WORKERS
+          value: "5"
+        - name: GUNICORN_THREADS
+          value: "1"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: task1-svc
+spec:
+  selector:
+    app: task1
+  ports:
+  - name: http
+    protocol: TCP
+    port: 80
+    targetPort: 8080
+
+---
+# --- TASK2 Deployment ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: task2-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: task2
+  template:
+    metadata:
+      labels:
+        app: task2
+    spec:
+      containers:
+      - name: app
+        image: bistrulli/generic-microservice-tester:0.3
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: "1000m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "512Mi"
+        env:
+        - name: SERVICE_NAME
+          value: "task2"
+        - name: SERVICE_TIME_SECONDS
+          value: "0.5"
+        - name: OUTBOUND_CALLS
+          value: ""
+        - name: GUNICORN_WORKERS
+          value: "5"
+        - name: GUNICORN_THREADS
+          value: "1"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: task2-svc
+spec:
+  selector:
+    app: task2
+  ports:
+  - name: http
+    protocol: TCP
+    port: 80
+    targetPort: 8080

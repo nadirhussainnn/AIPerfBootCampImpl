@@ -1,0 +1,42 @@
+# FILE: gateway.yaml
+
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: entry-gateway
+spec:
+  selector:
+    istio: ingressgateway # Select Istio Ingress Gateway's pod
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - "*"
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: entry-vs
+spec:
+  hosts:
+  - "*"
+  gateways:
+  - entry-gateway
+  http:
+  - route:
+    - destination:
+        host: task1-svc
+        port:
+          number: 80
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: task1-random-lb
+spec:
+  host: task1-svc
+  trafficPolicy:
+    loadBalancer:
+      simple: RANDOM # Load balancing policy set to random

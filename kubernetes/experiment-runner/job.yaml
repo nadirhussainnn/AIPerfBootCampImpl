@@ -1,0 +1,66 @@
+# Example Job to run experiments from inside the cluster.
+# Build and push the runner image, then create a Secret for GITHUB_TOKEN and this Job.
+#
+# 1) Build: docker build -f controller/Dockerfile.runner -t <REGISTRY>/experiment-runner:latest .
+# 2) Push: docker push <REGISTRY>/experiment-runner:latest
+# 3) Create secret (if using --push):
+#    kubectl create secret generic github-token --from-literal=GITHUB_TOKEN=ghp_xxx -n experiment-runner
+# 4) Apply: kubectl apply -f kubernetes/experiment-runner/
+# 5) Run one-off: kubectl create job -n experiment-runner run-1 --image=<REGISTRY>/experiment-runner:latest -- <args...>
+#    Or use the Job below and set args in spec.containers[0].args.
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: experiment-runner
+  namespace: experiment-runner
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      serviceAccountName: experiment-runner
+      restartPolicy: Never
+      containers:
+        - name: runner
+          image: rpizziol/experiment-runner:v8
+          imagePullPolicy: Always
+          # Entrypoint clones GIT_REPO into /app then runs run_experiments_in_cluster.sh with args.
+          # Add --runs N to repeat the same campaign N times (e.g. --runs 3).
+          # muopt: autoscaler, apps, workload, duration, [shift], [amplitude], --runs, --push (no --model-template)
+          args:
+            - atom
+            - kubernetes/apps/lqn04-4f.yaml
+            - locust/workloads/sin400.csv
+            - 60m
+            - "30"
+            - "38"
+            - --model-template
+            - controller/atom/models/lqn04-4f.lqn.j2
+            - --runs
+            - "1"
+            - --push
+          env:
+            - name: GIT_REPO
+              value: "https://github.com/rpizziol/muOpt.git"
+            - name: GIT_BRANCH
+              value: "main"
+            - name: GITHUB_REPO
+              value: "rpizziol/muOpt"
+            - name: RUN_IN_CLUSTER
+              value: "1"
+            # - name: INGRESS_HOST
+            #   value: "http://istio-ingressgateway.istio-system.svc.cluster.local"
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: github-token
+                  key: GITHUB_TOKEN
+                  optional: true
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "500m"
+            limits:
+              memory: "6Gi"
+              cpu: "4"
