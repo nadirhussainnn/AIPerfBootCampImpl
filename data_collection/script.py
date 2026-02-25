@@ -7,7 +7,7 @@ from datetime import datetime
 # CONFIGURATION
 PROMETHEUS_URL = "http://localhost:9090"
 SERVICES = ["task1", "task2", "task3"]
-INTERVAL_SEC = 30 # 2 minutes atleast, 35 to 40 mins exp
+INTERVAL_SEC = 120 # 2 minute interval for data collection
  
 def query_prometheus(query):
     try:
@@ -18,19 +18,6 @@ def query_prometheus(query):
         return 0.0
     except Exception:
         return 0.0
-
-# def get_endpoint_name():
-#     # Concrete fetch of Service + IP/Port from Istio telemetry
-#     query = f'count by (destination_service) (istio_requests_total{{destination_workload_namespace="default", reporter="destination"}})'
-#     try:
-#         response = requests.get(f"{PROMETHEUS_URL}/api/v1/query", params={'query': query})
-#         results = response.json()['data']['result']
-#         if results and len(results) > 0:
-#             m = results[0]['metric']
-#             return f"{m.get('destination_service')}"
-#         return "no_traffic"
-#     except Exception:
-#         return "fetch_error"
     
 def get_endpoint_name(service):
     """
@@ -78,9 +65,11 @@ def collect_metrics(service):
         "replicas": f'count(up{{pod=~"{service}.*"}})',
 
         # System Configuration - Use a specific container filter
-        "cpu_limit": f'sum(kube_pod_container_resource_limits{{pod=~"{service}.*", container="app", resource="cpu"}}) * 1000',
-        "memory_limit": f'sum(kube_pod_container_resource_limits{{pod=~"{service}-.*", container="app", resource="memory"}}) / 1024 / 1024',
-         
+        "cpu_limit": f'sum(kube_pod_container_resource_limits{{container="app", resource="cpu", pod=~"{service}.*"}})',
+        "cpu_request": f'sum(kube_pod_container_resource_requests{{container="app", resource="cpu", pod=~"{service}-.*"}})',
+        "memory_limit": f'sum(kube_pod_container_resource_limits{{container="app", resource="memory", pod=~"{service}-.*"}}) / 1024 / 1024',
+        "memory_request": f'sum(kube_pod_container_resource_requests{{container="app", resource="memory", pod=~"{service}-.*"}}) / 1024 / 1024',
+
         # Traffic Patterns [cite: 34, 49]
         "request_rate": f'sum(rate(istio_requests_total{{reporter="destination", destination_workload=~"{service}.*"}}[{window}]))',
         "throughput": f'sum(rate(istio_requests_total{{reporter="destination", destination_workload=~"{service}.*", response_code="200"}}[{window}]))',
@@ -110,9 +99,9 @@ def main():
             
             with open(filename, 'a', newline='') as f:
                 # Ordering fields exactly like the proposal 
-                fieldnames = ["timestamp", "service", "endpoint", "replicas", "cpu_limit", "memory_limit",
-                              "request_rate", "p50_latency", "p95_latency", "p99_latency", "avg_latency",
-                              "throughput", "cpu_usage"]
+                fieldnames = ["timestamp", "service", "endpoint", "replicas", "cpu_limit", "cpu_request", 
+                              "memory_limit", "memory_request", "request_rate", "p50_latency", "p95_latency", 
+                              "p99_latency", "avg_latency", "throughput", "cpu_usage"]
                 
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 if not file_exists:
