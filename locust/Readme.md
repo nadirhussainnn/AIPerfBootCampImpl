@@ -1,16 +1,16 @@
+# Running gradual experiment
+
+```
+python3 locust/run_gradual_workload.py --users-start 1 --users-end 2
+
+```
+
 # Running data collector
 ```
 python script.py --users 1 --replicas 1
 ```
-python3 locust/run_gradual_workload.py --users-start 1 --users-end 2
 
 
-# Running gradual experiment
-
-```
-python run_gradual_workload.py --users-start 1 --users-end 5
-
-```
 
 # Running locustfile.py 
 - This allows us to open locust client in browser
