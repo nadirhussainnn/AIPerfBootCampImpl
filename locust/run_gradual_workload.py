@@ -5,8 +5,8 @@ from typing import List
 
 # Fixed campaign config (no CLI args).
 HOST = "http://localhost"
-LOCUSTFILE = "locust/locustfile_constant.py"
-OUTPUT_DIR = "locust/logs/gradual"
+LOCUSTFILE = "locustfile_constant.py"
+OUTPUT_DIR = "logs/gradual"
 USERS_START = 1
 USERS_END = 10
 RUN_TIME = "40m"
@@ -14,7 +14,7 @@ SPAWN_RATE = 100
 NAMESPACE = "default"
 PAUSE_SECONDS = 120
 
-# Services from data_collection/script.py -> task1, task2, task3.
+# Services from data_collection/script.py
 DEPLOYMENTS = ["task1-deployment", "task2-deployment", "task3-deployment"]
 
 # One experiment per replica count.
