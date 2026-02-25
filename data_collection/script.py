@@ -2,6 +2,7 @@ import requests
 import time
 import csv
 import os
+import argparse
 from datetime import datetime
 
 # CONFIGURATION
@@ -90,11 +91,16 @@ def collect_metrics(service):
     return data
 
 def main():
+    parser = argparse.ArgumentParser(description="Collect metrics for one experiment setup.")
+    parser.add_argument("--users", type=int, required=True, help="User count for this experiment.")
+    parser.add_argument("--replicas", type=int, required=True, help="Replica count for this experiment.")
+    args = parser.parse_args()
+
     print(f"Starting data collection for {SERVICES} according to project schema...")
     while True:
         for service in SERVICES:
             row = collect_metrics(service)
-            filename = f"{service}_metrics.csv"
+            filename = f"{service}_{args.users}_{args.replicas}.csv"
             file_exists = os.path.isfile(filename)
             
             with open(filename, 'a', newline='') as f:

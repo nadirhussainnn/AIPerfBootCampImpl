@@ -1,14 +1,22 @@
+# Running data collector
+```
+python script.py --users 1 --replicas 1
+```
+
+# Running gradual experiment
+
+```
+python run_gradual_workload.py --users-start 1 --users-end 5
+
+```
+
 # Running locustfile.py 
 - This allows us to open locust client in browser
 ```
 locust -f locustfile.py
 ``` 
 
-# Running gradual experiment
 
-```
-
-```
 # Running locust from command line to use workloads
 - It will run for 25 minutes, reading 
 - If we set fit_trace false and limit 300, it will cover only rows 300 rows from csv. We want it to cover all rows.
