@@ -2,6 +2,8 @@
 ```
 python script.py --users 1 --replicas 1
 ```
+python3 locust/run_gradual_workload.py --users-start 1 --users-end 2
+
 
 # Running gradual experiment
 
