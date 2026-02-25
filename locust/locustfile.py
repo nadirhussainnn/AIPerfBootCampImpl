@@ -45,6 +45,7 @@ class SimpleUser(HttpUser):
     # Set the wait_time directly as a class attribute.
     #wait_time = constant(THINK_TIME)
 
+    host = "http://localhost"  # Default host, can be overridden by LOCUST_HOST env variable
     @task
     def access_entrypoint(self):
         """

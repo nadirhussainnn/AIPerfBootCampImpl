@@ -53,30 +53,44 @@ class TraceShape(LoadTestShape):
             print(f"❌ ERROR: Could not read or process workload file '{self.trace_file}': {e}")
             sys.exit(1)
 
+    # This runs evry second to determine the current user count based on the trace and elapsed time
     def tick(self):
+        # Check if we've exceeded the time limit
         run_time = self.get_run_time()
         if run_time > self.time_limit:
             return None
 
+        # fit_trace mean we want to stretch the trace to fit the entire duration, otherwise we loop through it 
         if self.fit_trace:
             scaling_ratio = self.max_index / self.time_limit
             trace_index = int(run_time * scaling_ratio)
+            # Stretch the trace to fit the entire duration, but cap the index to avoid out-of-range errors
             trace_index = min(trace_index, self.max_index - 1)
         else:
+            # repeat the trace if time exceeds its length
             trace_index = int(run_time) % self.max_index
 
+        # target number of users at the instance of time.
         user_count = self.scaled_trace[trace_index]
-        return (user_count, 100) # Using aggressive spawn rate
+
+        # 100 users/sec spawn_rate is how quickly we want to reach that user count. Setting it equal to user_count means we will try to reach the target user count within 1 second, which is aggressive but ensures we follow the trace closely.
+        return (user_count, 100) # Using aggressive spawn rate, useful for brusts and spikes
+    
+
 
 # --- User Behavior ---
 class MicroserviceUser(HttpUser):
+    host = "http://localhost"
+    # think_time,  defines the wait time between user actions. i.e user send requests in every .42s on average. 
     think_time = get_env_var("LOCUST_THINK_TIME", is_numeric=True)
     wait_time = constant(think_time)
     
     entrypoint_path = get_env_var("LOCUST_ENTRYPOINT_PATH", default="/")
     print(f"✅ User think time set to {think_time}s. Entrypoint path set to {entrypoint_path}.")
 
+    # each user calls the entrypoint in a loop with the defined think time in between.
     @task
     def access_entrypoint(self):
+        # The entrypoint is defined as an environment variable, for now we hit the / endpoint, 
         self.client.get(self.entrypoint_path)
 
