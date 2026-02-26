@@ -1,0 +1,1 @@
+timestamp,service,endpoint,replicas,cpu_limit,cpu_request,memory_limit,memory_request,request_rate,p50_latency,p95_latency,p99_latency,avg_latency,throughput,cpu_usage
