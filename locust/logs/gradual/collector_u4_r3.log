@@ -8,3 +8,65 @@ Traceback (most recent call last):
   File "/Users/nadirhussain/iCloud Drive (Archive)/Desktop/MS/Bootcamp/bank-of-anthos/code/Fork/AIPerfBootCampImpl/data_collection/script.py", line 144, in main
     time.sleep(min(INTERVAL_SEC, remaining))
 KeyboardInterrupt
+Starting data collection for users=4, replicas=3, duration=2400s
+[2026-02-26 12:58:10] task1 logged to task1_4_3.csv
+[2026-02-26 12:58:10] task2 logged to task2_4_3.csv
+[2026-02-26 12:58:10] task3 logged to task3_4_3.csv
+[2026-02-26 13:00:11] task1 logged to task1_4_3.csv
+[2026-02-26 13:00:11] task2 logged to task2_4_3.csv
+[2026-02-26 13:00:11] task3 logged to task3_4_3.csv
+[2026-02-26 13:02:11] task1 logged to task1_4_3.csv
+[2026-02-26 13:02:11] task2 logged to task2_4_3.csv
+[2026-02-26 13:02:11] task3 logged to task3_4_3.csv
+[2026-02-26 13:04:11] task1 logged to task1_4_3.csv
+[2026-02-26 13:04:11] task2 logged to task2_4_3.csv
+[2026-02-26 13:04:11] task3 logged to task3_4_3.csv
+[2026-02-26 13:06:11] task1 logged to task1_4_3.csv
+[2026-02-26 13:06:11] task2 logged to task2_4_3.csv
+[2026-02-26 13:06:12] task3 logged to task3_4_3.csv
+[2026-02-26 13:08:12] task1 logged to task1_4_3.csv
+[2026-02-26 13:08:12] task2 logged to task2_4_3.csv
+[2026-02-26 13:08:12] task3 logged to task3_4_3.csv
+[2026-02-26 13:10:12] task1 logged to task1_4_3.csv
+[2026-02-26 13:10:12] task2 logged to task2_4_3.csv
+[2026-02-26 13:10:12] task3 logged to task3_4_3.csv
+[2026-02-26 13:12:12] task1 logged to task1_4_3.csv
+[2026-02-26 13:12:12] task2 logged to task2_4_3.csv
+[2026-02-26 13:12:12] task3 logged to task3_4_3.csv
+[2026-02-26 13:14:13] task1 logged to task1_4_3.csv
+[2026-02-26 13:14:13] task2 logged to task2_4_3.csv
+[2026-02-26 13:14:13] task3 logged to task3_4_3.csv
+[2026-02-26 13:16:13] task1 logged to task1_4_3.csv
+[2026-02-26 13:16:13] task2 logged to task2_4_3.csv
+[2026-02-26 13:16:13] task3 logged to task3_4_3.csv
+[2026-02-26 13:18:13] task1 logged to task1_4_3.csv
+[2026-02-26 13:18:13] task2 logged to task2_4_3.csv
+[2026-02-26 13:18:14] task3 logged to task3_4_3.csv
+[2026-02-26 13:20:14] task1 logged to task1_4_3.csv
+[2026-02-26 13:20:14] task2 logged to task2_4_3.csv
+[2026-02-26 13:20:14] task3 logged to task3_4_3.csv
+[2026-02-26 13:22:14] task1 logged to task1_4_3.csv
+[2026-02-26 13:22:14] task2 logged to task2_4_3.csv
+[2026-02-26 13:22:14] task3 logged to task3_4_3.csv
+[2026-02-26 13:24:14] task1 logged to task1_4_3.csv
+[2026-02-26 13:24:15] task2 logged to task2_4_3.csv
+[2026-02-26 13:24:15] task3 logged to task3_4_3.csv
+[2026-02-26 13:26:15] task1 logged to task1_4_3.csv
+[2026-02-26 13:26:15] task2 logged to task2_4_3.csv
+[2026-02-26 13:26:15] task3 logged to task3_4_3.csv
+[2026-02-26 13:28:15] task1 logged to task1_4_3.csv
+[2026-02-26 13:28:15] task2 logged to task2_4_3.csv
+[2026-02-26 13:28:15] task3 logged to task3_4_3.csv
+[2026-02-26 13:30:16] task1 logged to task1_4_3.csv
+[2026-02-26 13:30:16] task2 logged to task2_4_3.csv
+[2026-02-26 13:30:16] task3 logged to task3_4_3.csv
+[2026-02-26 13:32:16] task1 logged to task1_4_3.csv
+[2026-02-26 13:32:16] task2 logged to task2_4_3.csv
+[2026-02-26 13:32:16] task3 logged to task3_4_3.csv
+[2026-02-26 13:34:16] task1 logged to task1_4_3.csv
+[2026-02-26 13:34:16] task2 logged to task2_4_3.csv
+[2026-02-26 13:34:17] task3 logged to task3_4_3.csv
+[2026-02-26 13:36:17] task1 logged to task1_4_3.csv
+[2026-02-26 13:36:17] task2 logged to task2_4_3.csv
+[2026-02-26 13:36:17] task3 logged to task3_4_3.csv
+Data collection complete.
