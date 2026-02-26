@@ -12,7 +12,7 @@ NAMESPACE = "default"
 
 # AUTOMATION CONFIGURATION
 USERS_RANGE = range(1, 6)      
-REPLICAS_RANGE = range(3, 5)    
+REPLICAS_RANGE = range(4, 5)    
 INTERVAL_SEC = 120              
 DATA_POINTS_PER_RUN = 20     
 COOLDOWN_SEC = 100              
