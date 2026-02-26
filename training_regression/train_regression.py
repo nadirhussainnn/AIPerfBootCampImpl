@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import argparse
 import json
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -27,17 +26,8 @@ np.random.seed(RANDOM_STATE)
 TARGET_COLS = ["avg_latency", "throughput", "cpu_usage"]
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Regression-only pipeline for service performance prediction.")
-    parser.add_argument("--data-dir", default="data_collection", help="Directory containing CSV files.")
-    parser.add_argument("--output-dir", default="training_regression/output_regression", help="Output directory.")
-    parser.add_argument("--config-test-size", type=float, default=0.25, help="Held-out config ratio.")
-    parser.add_argument("--interp-test-size", type=float, default=0.2, help="Interpolation test ratio.")
-    parser.add_argument("--extrap-quantile", type=float, default=0.8, help="Quantile threshold for extrapolation test.")
-    return parser.parse_args()
-
-
-def load_dataset(data_dir: Path) -> pd.DataFrame:
+def load_dataset(data_dir: str | Path) -> pd.DataFrame:
+    data_dir = Path(data_dir)
     csv_files = sorted(data_dir.glob("*.csv"))
     if not csv_files:
         raise FileNotFoundError(f"No CSV files found in {data_dir}")
@@ -300,7 +290,7 @@ def train_and_predict(
     feature_cols: List[str],
     numeric_cols: List[str],
     categorical_cols: List[str],
-) -> Tuple[np.ndarray, Pipeline]:
+) -> Tuple[np.ndarray, np.ndarray, Pipeline]:
     preprocessor = build_preprocessor(numeric_cols, categorical_cols)
     pipeline = Pipeline([("preprocessor", preprocessor), ("model", estimator)])
 
@@ -309,8 +299,9 @@ def train_and_predict(
     X_test = test_df[feature_cols]
 
     pipeline.fit(X_train, y_train)
-    pred = pipeline.predict(X_test)
-    return pred, pipeline
+    pred_train = pipeline.predict(X_train)
+    pred_test = pipeline.predict(X_test)
+    return pred_train, pred_test, pipeline
 
 
 def evaluate_load_scenarios(test_df: pd.DataFrame, y_pred: np.ndarray, model_name: str, scenario_name: str) -> pd.DataFrame:
@@ -365,12 +356,35 @@ def plot_core_eda(df: pd.DataFrame, output_dir: Path) -> None:
     plt.savefig(plots_dir / "correlation_heatmap.png", dpi=160)
     plt.close()
 
+    missing = df.isna().mean().sort_values(ascending=False).head(20)
+    plt.figure(figsize=(10, 5))
+    sns.barplot(x=missing.values * 100.0, y=missing.index)
+    plt.title("Top Missingness (%)")
+    plt.xlabel("Missing %")
+    plt.tight_layout()
+    plt.savefig(plots_dir / "missingness_top20.png", dpi=160)
+    plt.close()
+
+    plt.figure(figsize=(8, 4))
+    sns.countplot(data=df, x="load_scenario", order=["low", "medium", "high"])
+    plt.title("Load Scenario Counts")
+    plt.tight_layout()
+    plt.savefig(plots_dir / "load_scenario_counts.png", dpi=160)
+    plt.close()
+
+    plt.figure(figsize=(10, 5))
+    sns.boxplot(data=df, x="service", y="request_rate")
+    plt.title("Request Rate by Service")
+    plt.tight_layout()
+    plt.savefig(plots_dir / "request_rate_by_service.png", dpi=160)
+    plt.close()
+
 
 def plot_phase4_summary(metrics_df: pd.DataFrame, output_dir: Path) -> None:
     plots_dir = output_dir / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
 
-    view = metrics_df[["scenario", "model", "mae_mean", "mape_mean", "r2_mean"]].drop_duplicates()
+    view = metrics_df[metrics_df["split"] == "test"][["scenario", "model", "mae_mean", "mape_mean", "r2_mean"]].drop_duplicates()
 
     plt.figure(figsize=(10, 5))
     sns.barplot(data=view, x="scenario", y="mae_mean", hue="model")
@@ -394,13 +408,81 @@ def plot_phase4_summary(metrics_df: pd.DataFrame, output_dir: Path) -> None:
     plt.close()
 
 
-def main() -> None:
-    args = parse_args()
+def plot_split_sizes(scenarios: Dict[str, Tuple[pd.DataFrame, pd.DataFrame]], output_dir: Path) -> None:
+    plots_dir = output_dir / "plots"
+    plots_dir.mkdir(parents=True, exist_ok=True)
 
-    out_dir = Path(args.output_dir)
+    rows = []
+    for name, (train_df, test_df) in scenarios.items():
+        rows.append({"scenario": name, "split": "train", "rows": len(train_df)})
+        rows.append({"scenario": name, "split": "test", "rows": len(test_df)})
+
+    split_df = pd.DataFrame(rows)
+    plt.figure(figsize=(10, 5))
+    sns.barplot(data=split_df, x="scenario", y="rows", hue="split")
+    plt.title("Train/Test Rows by Scenario")
+    plt.tight_layout()
+    plt.savefig(plots_dir / "scenario_split_sizes.png", dpi=160)
+    plt.close()
+
+
+def plot_train_vs_test(metrics_df: pd.DataFrame, output_dir: Path) -> None:
+    plots_dir = output_dir / "plots"
+    plots_dir.mkdir(parents=True, exist_ok=True)
+
+    view = metrics_df[["scenario", "model", "split", "mae_mean", "mape_mean", "r2_mean"]].copy()
+    if view.empty:
+        return
+
+    for metric in ["mae_mean", "mape_mean", "r2_mean"]:
+        plt.figure(figsize=(11, 5))
+        sns.barplot(data=view, x="scenario", y=metric, hue="split")
+        plt.title(f"Train vs Test: {metric}")
+        plt.tight_layout()
+        plt.savefig(plots_dir / f"train_vs_test_{metric}.png", dpi=160)
+        plt.close()
+
+
+def plot_actual_vs_pred_residuals(pred_df: pd.DataFrame, output_dir: Path, scenario: str, model: str) -> None:
+    plots_dir = output_dir / "plots"
+    plots_dir.mkdir(parents=True, exist_ok=True)
+
+    fig, axes = plt.subplots(1, len(TARGET_COLS), figsize=(6 * len(TARGET_COLS), 5))
+    for i, t in enumerate(TARGET_COLS):
+        ax = axes[i]
+        x = pred_df[f"actual_{t}"].to_numpy()
+        y = pred_df[f"pred_{t}"].to_numpy()
+        ax.scatter(x, y, alpha=0.6)
+        lo = min(float(np.min(x)), float(np.min(y)))
+        hi = max(float(np.max(x)), float(np.max(y)))
+        ax.plot([lo, hi], [lo, hi], linestyle="--")
+        ax.set_title(f"Actual vs Predicted: {t}")
+    fig.tight_layout()
+    fig.savefig(plots_dir / f"actual_vs_predicted_{scenario}_{model}.png", dpi=160)
+    plt.close(fig)
+
+    fig, axes = plt.subplots(1, len(TARGET_COLS), figsize=(6 * len(TARGET_COLS), 5))
+    for i, t in enumerate(TARGET_COLS):
+        ax = axes[i]
+        residuals = pred_df[f"err_{t}"].to_numpy()
+        sns.histplot(residuals, bins=30, kde=True, ax=ax)
+        ax.set_title(f"Residuals: {t}")
+    fig.tight_layout()
+    fig.savefig(plots_dir / f"residuals_{scenario}_{model}.png", dpi=160)
+    plt.close(fig)
+
+
+def main() -> None:
+
+    out_dir = Path("output")
+    data_dir = Path("../data_collection")
+    config_test_size = 0.25
+    interp_test_size = 0.2
+    extrap_quantile = 0.8
+
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    raw = load_dataset(Path(args.data_dir))
+    raw = load_dataset(data_dir)
     data = clean_and_engineer(raw)
 
     traffic_features, config_features, categorical_features = choose_feature_columns(data)
@@ -412,15 +494,16 @@ def main() -> None:
     plot_core_eda(data, out_dir)
 
     # Phase 4 scenarios.
-    cfg_train, cfg_test = split_config_generalization(data, test_size=args.config_test_size)
-    interp_train, interp_test = split_interpolation(cfg_train, test_size=args.interp_test_size)
-    extrap_train, extrap_test = split_extrapolation(cfg_train, quantile_threshold=args.extrap_quantile)
+    cfg_train, cfg_test = split_config_generalization(data, test_size=config_test_size)
+    interp_train, interp_test = split_interpolation(cfg_train, test_size=interp_test_size)
+    extrap_train, extrap_test = split_extrapolation(cfg_train, quantile_threshold=extrap_quantile)
 
     scenarios = {
         "configuration_generalization": (cfg_train, cfg_test),
         "interpolation": (interp_train, interp_test),
         "extrapolation": (extrap_train, extrap_test),
     }
+    plot_split_sizes(scenarios, out_dir)
 
     models = {
         "linear_regression": LinearRegression(),
@@ -435,15 +518,17 @@ def main() -> None:
     metric_rows = []
     load_rows = []
     artifact_models: Dict[str, Pipeline] = {}
+    prediction_store: Dict[Tuple[str, str], pd.DataFrame] = {}
 
     for scenario_name, (train_df, test_df) in scenarios.items():
         if len(train_df) < 20 or len(test_df) < 10:
             continue
 
-        y_true = test_df[TARGET_COLS].to_numpy(dtype=float)
+        y_true_test = test_df[TARGET_COLS].to_numpy(dtype=float)
+        y_true_train = train_df[TARGET_COLS].to_numpy(dtype=float)
 
         for model_name, estimator in models.items():
-            pred, fitted = train_and_predict(
+            pred_train, pred_test, fitted = train_and_predict(
                 model_name,
                 estimator,
                 train_df,
@@ -453,25 +538,38 @@ def main() -> None:
                 categorical_cols=categorical_features,
             )
 
-            metrics = evaluate(y_true, pred, TARGET_COLS)
+            metrics_train = evaluate(y_true_train, pred_train, TARGET_COLS)
+            metrics_test = evaluate(y_true_test, pred_test, TARGET_COLS)
             metric_rows.append(
                 {
                     "scenario": scenario_name,
                     "model": model_name,
+                    "split": "train",
                     "n_train": int(len(train_df)),
                     "n_test": int(len(test_df)),
-                    **metrics,
+                    **metrics_train,
+                }
+            )
+            metric_rows.append(
+                {
+                    "scenario": scenario_name,
+                    "model": model_name,
+                    "split": "test",
+                    "n_train": int(len(train_df)),
+                    "n_test": int(len(test_df)),
+                    **metrics_test,
                 }
             )
 
             pred_df = test_df[["timestamp", "service", "source_file", "request_rate", "load_scenario", "config_signature"]].copy()
             for i, t in enumerate(TARGET_COLS):
-                pred_df[f"actual_{t}"] = y_true[:, i]
-                pred_df[f"pred_{t}"] = pred[:, i]
+                pred_df[f"actual_{t}"] = y_true_test[:, i]
+                pred_df[f"pred_{t}"] = pred_test[:, i]
                 pred_df[f"err_{t}"] = pred_df[f"actual_{t}"] - pred_df[f"pred_{t}"]
             pred_df.to_csv(out_dir / f"predictions_{scenario_name}_{model_name}.csv", index=False)
+            prediction_store[(scenario_name, model_name)] = pred_df
 
-            load_df = evaluate_load_scenarios(test_df, pred, model_name, scenario_name)
+            load_df = evaluate_load_scenarios(test_df, pred_test, model_name, scenario_name)
             load_rows.append(load_df)
 
             if scenario_name == "configuration_generalization":
@@ -483,10 +581,10 @@ def main() -> None:
 
     load_metrics_df = pd.concat(load_rows, ignore_index=True) if load_rows else pd.DataFrame()
 
-    # Select best regression model by configuration-generalization MAPE mean.
-    cfg_eval = metrics_df[metrics_df["scenario"] == "configuration_generalization"].copy()
+    # Select best regression model by configuration-generalization test MAPE mean.
+    cfg_eval = metrics_df[(metrics_df["scenario"] == "configuration_generalization") & (metrics_df["split"] == "test")].copy()
     if cfg_eval.empty:
-        cfg_eval = metrics_df.copy()
+        cfg_eval = metrics_df[metrics_df["split"] == "test"].copy()
 
     best_row = cfg_eval.sort_values(["mape_mean", "mae_mean"], ascending=[True, True]).iloc[0]
     best_model_name = str(best_row["model"])
@@ -499,6 +597,10 @@ def main() -> None:
         load_metrics_df.to_csv(out_dir / "phase4_load_scenario_metrics.csv", index=False)
 
     plot_phase4_summary(metrics_df, out_dir)
+    plot_train_vs_test(metrics_df, out_dir)
+    best_pred_df = prediction_store.get(("configuration_generalization", best_model_name))
+    if best_pred_df is not None:
+        plot_actual_vs_pred_residuals(best_pred_df, out_dir, "configuration_generalization", best_model_name)
 
     summary = {
         "pipeline": "Regression only",
@@ -520,7 +622,7 @@ def main() -> None:
             "extrapolation": {
                 "train_rows": int(len(extrap_train)),
                 "test_rows": int(len(extrap_test)),
-                "extrapolation_quantile": float(args.extrap_quantile),
+                "extrapolation_quantile": float(extrap_quantile),
             },
         },
         "selected_model": best_model_name,
