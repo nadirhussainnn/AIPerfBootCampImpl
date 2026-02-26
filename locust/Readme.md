@@ -120,3 +120,19 @@ locust -f locustfile_constant.py \
 ```
 python locust/run_campaigns.py --uniform-runtime 5m --ramp-runtime 5m --bursty-runtime 5m --pause-seconds 0
 ```
+
+# Why it was failing for replica 4
+
+At replica=4, we are trying to run 12 app pods total (task1/2/3, each 4 replicas), and each app pod requests:
+- cpu: 1
+- memory: 1536Mi
+
+So app requests alone are:
+- CPU: 12 cores
+- Memory: 18 GiB
+
+Then Istio sidecars add extra requests per pod (~0.1 CPU, 128Mi) for another ~1.2 CPU and ~1.5 GiB.
+
+Total requested is roughly:
+- CPU: 13.2 (over your Docker CPU 12)
+- Memory: 19.5 GiB (over your Docker memory 18 GiB)

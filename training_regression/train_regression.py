@@ -3,214 +3,41 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, List, Tuple
 
-import joblib
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
-from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.impute import SimpleImputer
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_absolute_error, r2_score
-from sklearn.model_selection import GroupShuffleSplit
+from sklearn.metrics import mean_absolute_error
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import StandardScaler
 
 RANDOM_STATE = 42
-np.random.seed(RANDOM_STATE)
 
 
-TARGET_COLS = ["avg_latency", "throughput", "cpu_usage"]
+TRAIN_USERS = {1, 2, 3, 5, 6, 8, 9, 10}
+TEST_USERS = {4, 7}
 
+DATA_DIR = Path("../data_collection")
+OUTPUT_DIR = Path("output")
 
-def load_dataset(data_dir: str | Path) -> pd.DataFrame:
-    data_dir = Path(data_dir)
-    csv_files = sorted(data_dir.glob("*.csv"))
-    if not csv_files:
-        raise FileNotFoundError(f"No CSV files found in {data_dir}")
+TARGET_COL = "cpu_usage"
 
-    frames = []
-    for file_path in csv_files:
-        df = pd.read_csv(file_path)
-        parts = file_path.stem.split("_")
-
-        service = parts[0] if len(parts) >= 1 else "unknown"
-        users = np.nan
-        configured_replicas = np.nan
-        run_id = np.nan
-
-        if len(parts) >= 3:
-            try:
-                users = int(parts[1])
-                configured_replicas = int(parts[2])
-            except ValueError:
-                pass
-
-        if len(parts) >= 4:
-            try:
-                run_id = int(parts[3])
-            except ValueError:
-                pass
-
-        df["service_from_file"] = service
-        df["experiment_users"] = users
-        df["configured_replicas"] = configured_replicas
-        df["run_id"] = run_id
-        df["source_file"] = file_path.name
-        frames.append(df)
-
-    return pd.concat(frames, ignore_index=True)
-
-
-def clean_and_engineer(df: pd.DataFrame) -> pd.DataFrame:
-    data = df.copy().drop_duplicates().reset_index(drop=True)
-    data["timestamp"] = pd.to_datetime(data["timestamp"], errors="coerce")
-    data = data.dropna(subset=["timestamp"]).copy()
-
-    numeric_cols = [
-        "replicas",
-        "cpu_limit",
-        "cpu_request",
-        "memory_limit",
-        "memory_request",
-        "request_rate",
-        "p50_latency",
-        "p95_latency",
-        "p99_latency",
-        "avg_latency",
-        "throughput",
-        "cpu_usage",
-        "experiment_users",
-        "configured_replicas",
-        "run_id",
-    ]
-    for col in numeric_cols:
-        if col in data.columns:
-            data[col] = pd.to_numeric(data[col], errors="coerce")
-
-    data["service"] = data["service"].fillna(data["service_from_file"]).astype(str)
-    data["endpoint"] = data["endpoint"].fillna("unknown").astype(str)
-
-    minute_of_day = data["timestamp"].dt.hour * 60 + data["timestamp"].dt.minute
-    day_of_week = data["timestamp"].dt.dayofweek
-
-    # Fourier features for daily + weekly periodicity.
-    data["fourier_day_sin_1"] = np.sin(2 * np.pi * minute_of_day / 1440.0)
-    data["fourier_day_cos_1"] = np.cos(2 * np.pi * minute_of_day / 1440.0)
-    data["fourier_day_sin_2"] = np.sin(4 * np.pi * minute_of_day / 1440.0)
-    data["fourier_day_cos_2"] = np.cos(4 * np.pi * minute_of_day / 1440.0)
-    data["fourier_week_sin"] = np.sin(2 * np.pi * day_of_week / 7.0)
-    data["fourier_week_cos"] = np.cos(2 * np.pi * day_of_week / 7.0)
-
-    data = data.sort_values(["source_file", "timestamp"]).reset_index(drop=True)
-
-    # Lag features and rolling statistics from traffic/system history.
-    lag_base = ["request_rate", "avg_latency", "throughput", "cpu_usage"]
-    for feat in lag_base:
-        for lag in [1, 2, 3]:
-            data[f"{feat}_lag_{lag}"] = data.groupby("source_file")[feat].shift(lag)
-
-    roll_base = ["request_rate", "throughput", "cpu_usage"]
-    for feat in roll_base:
-        shifted = data.groupby("source_file")[feat].shift(1)
-        data[f"{feat}_roll_mean_3"] = shifted.groupby(data["source_file"]).rolling(window=3).mean().reset_index(level=0, drop=True)
-        data[f"{feat}_roll_std_3"] = shifted.groupby(data["source_file"]).rolling(window=3).std().reset_index(level=0, drop=True)
-
-    data["config_signature"] = (
-        data["service"].astype(str)
-        + "|rep="
-        + data["configured_replicas"].astype(str)
-        + "|cpu="
-        + data["cpu_limit"].astype(str)
-        + "|mem="
-        + data["memory_limit"].astype(str)
-    )
-
-    # Load scenario labels for phase-4 analysis.
-    q_low = data["request_rate"].quantile(0.33)
-    q_high = data["request_rate"].quantile(0.66)
-    data["load_scenario"] = pd.cut(
-        data["request_rate"],
-        bins=[-np.inf, q_low, q_high, np.inf],
-        labels=["low", "medium", "high"],
-    ).astype(str)
-
-    return data
-
-
-def choose_feature_columns(data: pd.DataFrame) -> Tuple[List[str], List[str], List[str]]:
-    traffic_features = [
-        "request_rate",
-        "request_rate_lag_1",
-        "request_rate_lag_2",
-        "request_rate_lag_3",
-        "avg_latency_lag_1",
-        "avg_latency_lag_2",
-        "avg_latency_lag_3",
-        "throughput_lag_1",
-        "throughput_lag_2",
-        "throughput_lag_3",
-        "cpu_usage_lag_1",
-        "cpu_usage_lag_2",
-        "cpu_usage_lag_3",
-        "request_rate_roll_mean_3",
-        "request_rate_roll_std_3",
-        "throughput_roll_mean_3",
-        "throughput_roll_std_3",
-        "cpu_usage_roll_mean_3",
-        "cpu_usage_roll_std_3",
-        "fourier_day_sin_1",
-        "fourier_day_cos_1",
-        "fourier_day_sin_2",
-        "fourier_day_cos_2",
-        "fourier_week_sin",
-        "fourier_week_cos",
-    ]
-
-    config_features = [
-        "replicas",
-        "configured_replicas",
-        "cpu_limit",
-        "cpu_request",
-        "memory_limit",
-        "memory_request",
-        "experiment_users",
-    ]
-
-    categorical_features = ["service"]
-
-    required = set(traffic_features + config_features + categorical_features + TARGET_COLS + ["config_signature", "request_rate", "load_scenario"]) 
-    missing = [c for c in required if c not in data.columns]
-    if missing:
-        raise ValueError(f"Missing required columns: {missing}")
-
-    return traffic_features, config_features, categorical_features
-
-
-def build_preprocessor(numeric_features: List[str], categorical_features: List[str]) -> ColumnTransformer:
-    numeric_transformer = Pipeline(
-        steps=[
-            ("imputer", SimpleImputer(strategy="median")),
-            ("scaler", StandardScaler()),
-        ]
-    )
-    categorical_transformer = Pipeline(
-        steps=[
-            ("imputer", SimpleImputer(strategy="most_frequent")),
-            ("onehot", OneHotEncoder(handle_unknown="ignore")),
-        ]
-    )
-
-    preprocessor = ColumnTransformer(
-        transformers=[
-            ("num", numeric_transformer, numeric_features),
-            ("cat", categorical_transformer, categorical_features),
-        ]
-    )
-    return preprocessor
+# Keep only useful/contributing features for CPU utilization.
+FEATURE_COLS = [
+    "request_rate",
+    "replicas",
+    "configured_replicas",
+    "cpu_limit",
+    "cpu_request",
+    "memory_limit",
+    "memory_request",
+    "experiment_users",
+    "request_rate_lag_1",
+    "request_rate_lag_2",
+    "cpu_usage_lag_1",
+    "cpu_usage_lag_2",
+]
 
 
 def mape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -218,425 +45,162 @@ def mape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return float(np.mean(np.abs((y_true - y_pred) / denom)) * 100.0)
 
 
-def within_tolerance_accuracy(y_true: np.ndarray, y_pred: np.ndarray, tol_pct: float = 10.0) -> float:
-    denom = np.maximum(np.abs(y_true), 1e-8)
-    pct_err = np.abs((y_true - y_pred) / denom) * 100.0
-    return float(np.mean(pct_err <= tol_pct) * 100.0)
+def parse_user_from_filename(path: Path) -> int | None:
+    # Expected format: taskX_<users>_<replicas>.csv
+    parts = path.stem.split("_")
+    if len(parts) < 3:
+        return None
+    try:
+        return int(parts[1])
+    except ValueError:
+        return None
 
 
-def evaluate(y_true: np.ndarray, y_pred: np.ndarray, targets: List[str]) -> Dict[str, float]:
-    out: Dict[str, float] = {}
-    maes, mapes, r2s = [], [], []
-    for i, t in enumerate(targets):
-        mae_i = mean_absolute_error(y_true[:, i], y_pred[:, i])
-        mape_i = mape(y_true[:, i], y_pred[:, i])
-        r2_i = r2_score(y_true[:, i], y_pred[:, i])
-        acc_i = within_tolerance_accuracy(y_true[:, i], y_pred[:, i], tol_pct=10.0)
+def load_data(data_dir: Path) -> pd.DataFrame:
+    files = sorted(data_dir.glob("*.csv"))
+    if not files:
+        raise FileNotFoundError(f"No CSV files found in: {data_dir}")
 
-        out[f"{t}_mae"] = float(mae_i)
-        out[f"{t}_mape"] = float(mape_i)
-        out[f"{t}_r2"] = float(r2_i)
-        out[f"{t}_acc_10pct"] = float(acc_i)
-
-        maes.append(mae_i)
-        mapes.append(mape_i)
-        r2s.append(r2_i)
-
-    out["mae_mean"] = float(np.mean(maes))
-    out["mape_mean"] = float(np.mean(mapes))
-    out["r2_mean"] = float(np.mean(r2s))
-    return out
-
-
-def split_config_generalization(df: pd.DataFrame, test_size: float) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    gss = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=RANDOM_STATE)
-    idx_train, idx_test = next(gss.split(df, groups=df["config_signature"]))
-    return df.iloc[idx_train].copy(), df.iloc[idx_test].copy()
-
-
-def split_interpolation(df: pd.DataFrame, test_size: float) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    # Unseen traffic patterns within distribution: central quantile band.
-    q10 = df["request_rate"].quantile(0.10)
-    q90 = df["request_rate"].quantile(0.90)
-    pool = df[(df["request_rate"] >= q10) & (df["request_rate"] <= q90)].copy()
-
-    if len(pool) < 20:
-        pool = df.copy()
-
-    test = pool.sample(frac=test_size, random_state=RANDOM_STATE)
-    train = df.drop(index=test.index)
-    return train.copy(), test.copy()
-
-
-def split_extrapolation(df: pd.DataFrame, quantile_threshold: float) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    # Train on lower traffic intensity, test on higher unseen intensity region.
-    thr = df["request_rate"].quantile(quantile_threshold)
-    train = df[df["request_rate"] <= thr].copy()
-    test = df[df["request_rate"] > thr].copy()
-
-    if len(test) < 20:
-        thr = df["request_rate"].quantile(0.75)
-        train = df[df["request_rate"] <= thr].copy()
-        test = df[df["request_rate"] > thr].copy()
-
-    return train, test
-
-
-def train_and_predict(
-    model_name: str,
-    estimator,
-    train_df: pd.DataFrame,
-    test_df: pd.DataFrame,
-    feature_cols: List[str],
-    numeric_cols: List[str],
-    categorical_cols: List[str],
-) -> Tuple[np.ndarray, np.ndarray, Pipeline]:
-    preprocessor = build_preprocessor(numeric_cols, categorical_cols)
-    pipeline = Pipeline([("preprocessor", preprocessor), ("model", estimator)])
-
-    X_train = train_df[feature_cols]
-    y_train = train_df[TARGET_COLS].to_numpy(dtype=float)
-    X_test = test_df[feature_cols]
-
-    pipeline.fit(X_train, y_train)
-    pred_train = pipeline.predict(X_train)
-    pred_test = pipeline.predict(X_test)
-    return pred_train, pred_test, pipeline
-
-
-def evaluate_load_scenarios(test_df: pd.DataFrame, y_pred: np.ndarray, model_name: str, scenario_name: str) -> pd.DataFrame:
-    rows = []
-    y_true = test_df[TARGET_COLS].to_numpy(dtype=float)
-
-    for load_name in ["low", "medium", "high"]:
-        mask = test_df["load_scenario"].astype(str) == load_name
-        if mask.sum() == 0:
+    frames = []
+    for file_path in files:
+        user = parse_user_from_filename(file_path)
+        if user is None:
             continue
 
-        yt = y_true[mask.to_numpy()]
-        yp = y_pred[mask.to_numpy()]
-        metrics = evaluate(yt, yp, TARGET_COLS)
+        df = pd.read_csv(file_path)
+        parts = file_path.stem.split("_")
 
-        for t in TARGET_COLS:
-            rows.append(
-                {
-                    "scenario": scenario_name,
-                    "model": model_name,
-                    "load_scenario": load_name,
-                    "target": t,
-                    "mae": metrics[f"{t}_mae"],
-                    "mape": metrics[f"{t}_mape"],
-                    "r2": metrics[f"{t}_r2"],
-                    "acc_10pct": metrics[f"{t}_acc_10pct"],
-                    "n_samples": int(mask.sum()),
-                }
-            )
+        configured_replicas = np.nan
+        if len(parts) >= 3:
+            try:
+                configured_replicas = int(parts[2])
+            except ValueError:
+                pass
 
-    return pd.DataFrame(rows)
+        df["experiment_users"] = user
+        df["configured_replicas"] = configured_replicas
+        df["source_file"] = file_path.name
+        frames.append(df)
 
+    if not frames:
+        raise RuntimeError("No valid CSV files matched expected naming pattern.")
 
-def plot_core_eda(df: pd.DataFrame, output_dir: Path) -> None:
-    plots_dir = output_dir / "plots"
-    plots_dir.mkdir(parents=True, exist_ok=True)
+    data = pd.concat(frames, ignore_index=True)
 
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
-    for i, t in enumerate(TARGET_COLS):
-        sns.histplot(df[t], bins=30, kde=True, ax=axes[i])
-        axes[i].set_title(f"Distribution: {t}")
-    fig.tight_layout()
-    fig.savefig(plots_dir / "target_distributions.png", dpi=160)
-    plt.close(fig)
+    numeric_cols = [
+        "request_rate",
+        "replicas",
+        "cpu_limit",
+        "cpu_request",
+        "memory_limit",
+        "memory_request",
+        "cpu_usage",
+        "experiment_users",
+        "configured_replicas",
+    ]
+    for col in numeric_cols:
+        if col in data.columns:
+            data[col] = pd.to_numeric(data[col], errors="coerce")
 
-    num_df = df.select_dtypes(include=["number"]).copy()
-    corr = num_df.corr(numeric_only=True)
-    plt.figure(figsize=(12, 8))
-    sns.heatmap(corr, cmap="coolwarm", center=0)
-    plt.title("Correlation Heatmap")
-    plt.tight_layout()
-    plt.savefig(plots_dir / "correlation_heatmap.png", dpi=160)
-    plt.close()
+    # Minimal lag features for CPU prediction.
+    data["timestamp"] = pd.to_datetime(data["timestamp"], errors="coerce")
+    data = data.sort_values(["source_file", "timestamp"]).reset_index(drop=True)
 
-    missing = df.isna().mean().sort_values(ascending=False).head(20)
-    plt.figure(figsize=(10, 5))
-    sns.barplot(x=missing.values * 100.0, y=missing.index)
-    plt.title("Top Missingness (%)")
-    plt.xlabel("Missing %")
-    plt.tight_layout()
-    plt.savefig(plots_dir / "missingness_top20.png", dpi=160)
-    plt.close()
+    data["request_rate_lag_1"] = data.groupby("source_file")["request_rate"].shift(1)
+    data["request_rate_lag_2"] = data.groupby("source_file")["request_rate"].shift(2)
+    data["cpu_usage_lag_1"] = data.groupby("source_file")["cpu_usage"].shift(1)
+    data["cpu_usage_lag_2"] = data.groupby("source_file")["cpu_usage"].shift(2)
 
-    plt.figure(figsize=(8, 4))
-    sns.countplot(data=df, x="load_scenario", order=["low", "medium", "high"])
-    plt.title("Load Scenario Counts")
-    plt.tight_layout()
-    plt.savefig(plots_dir / "load_scenario_counts.png", dpi=160)
-    plt.close()
-
-    plt.figure(figsize=(10, 5))
-    sns.boxplot(data=df, x="service", y="request_rate")
-    plt.title("Request Rate by Service")
-    plt.tight_layout()
-    plt.savefig(plots_dir / "request_rate_by_service.png", dpi=160)
-    plt.close()
+    return data
 
 
-def plot_phase4_summary(metrics_df: pd.DataFrame, output_dir: Path) -> None:
-    plots_dir = output_dir / "plots"
-    plots_dir.mkdir(parents=True, exist_ok=True)
+def train_and_evaluate(data: pd.DataFrame) -> None:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    view = metrics_df[metrics_df["split"] == "test"][["scenario", "model", "mae_mean", "mape_mean", "r2_mean"]].drop_duplicates()
+    data = data.dropna(subset=FEATURE_COLS + [TARGET_COL, "experiment_users"]).copy()
 
-    plt.figure(figsize=(10, 5))
-    sns.barplot(data=view, x="scenario", y="mae_mean", hue="model")
-    plt.title("MAE (mean across targets) by Scenario")
-    plt.tight_layout()
-    plt.savefig(plots_dir / "phase4_mae_by_scenario.png", dpi=160)
-    plt.close()
+    train_df = data[data["experiment_users"].isin(TRAIN_USERS)].copy()
+    test_df = data[data["experiment_users"].isin(TEST_USERS)].copy()
 
-    plt.figure(figsize=(10, 5))
-    sns.barplot(data=view, x="scenario", y="mape_mean", hue="model")
-    plt.title("MAPE (mean across targets) by Scenario")
-    plt.tight_layout()
-    plt.savefig(plots_dir / "phase4_mape_by_scenario.png", dpi=160)
-    plt.close()
+    if train_df.empty:
+        raise RuntimeError("Training set is empty for requested TRAIN_USERS.")
+    if test_df.empty:
+        raise RuntimeError("Test set is empty for requested TEST_USERS.")
 
-    plt.figure(figsize=(10, 5))
-    sns.barplot(data=view, x="scenario", y="r2_mean", hue="model")
-    plt.title("R2 (mean across targets) by Scenario")
-    plt.tight_layout()
-    plt.savefig(plots_dir / "phase4_r2_by_scenario.png", dpi=160)
-    plt.close()
+    model = Pipeline(
+        steps=[
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scaler", StandardScaler()),
+            (
+                "regressor",
+                RandomForestRegressor(
+                    n_estimators=300,
+                    min_samples_leaf=2,
+                    random_state=RANDOM_STATE,
+                    n_jobs=-1,
+                ),
+            ),
+        ]
+    )
 
+    X_train = train_df[FEATURE_COLS]
+    y_train = train_df[TARGET_COL].to_numpy(dtype=float)
 
-def plot_split_sizes(scenarios: Dict[str, Tuple[pd.DataFrame, pd.DataFrame]], output_dir: Path) -> None:
-    plots_dir = output_dir / "plots"
-    plots_dir.mkdir(parents=True, exist_ok=True)
+    X_test = test_df[FEATURE_COLS]
+    y_test = test_df[TARGET_COL].to_numpy(dtype=float)
 
-    rows = []
-    for name, (train_df, test_df) in scenarios.items():
-        rows.append({"scenario": name, "split": "train", "rows": len(train_df)})
-        rows.append({"scenario": name, "split": "test", "rows": len(test_df)})
+    model.fit(X_train, y_train)
 
-    split_df = pd.DataFrame(rows)
-    plt.figure(figsize=(10, 5))
-    sns.barplot(data=split_df, x="scenario", y="rows", hue="split")
-    plt.title("Train/Test Rows by Scenario")
-    plt.tight_layout()
-    plt.savefig(plots_dir / "scenario_split_sizes.png", dpi=160)
-    plt.close()
+    # Case 1: users 4/7 (within training range)
+    pred_case1 = model.predict(X_test)
+    mae_case1 = float(mean_absolute_error(y_test, pred_case1))
+    mape_case1 = mape(y_test, pred_case1)
 
+    # Case 2: simulated unseen higher user intensity (user=15)
+    # We alter user count and traffic-related features to mimic extrapolation.
+    X_case2 = X_test.copy()
+    avg_test_user = float(np.maximum(X_test["experiment_users"].mean(), 1.0))
+    intensity_scale = 15.0 / avg_test_user
+    X_case2["experiment_users"] = 15
+    for col in ["request_rate", "request_rate_lag_1", "request_rate_lag_2"]:
+        X_case2[col] = X_case2[col] * intensity_scale
+    pred_case2 = model.predict(X_case2)
+    mae_case2 = float(mean_absolute_error(y_test, pred_case2))
+    mape_case2 = mape(y_test, pred_case2)
 
-def plot_train_vs_test(metrics_df: pd.DataFrame, output_dir: Path) -> None:
-    plots_dir = output_dir / "plots"
-    plots_dir.mkdir(parents=True, exist_ok=True)
+    results = {
+        "target": TARGET_COL,
+        "train_users": sorted(TRAIN_USERS),
+        "test_users": sorted(TEST_USERS),
+        "n_train": int(len(train_df)),
+        "n_test": int(len(test_df)),
+        "metrics": {
+            "case1_users_4_7": {"mae": mae_case1, "mape": mape_case1},
+            "case2_simulated_user_15": {"mae": mae_case2, "mape": mape_case2},
+        },
+        "note": "Case 2 uses simulated user=15 feature values because no user-15 CSV is currently loaded.",
+    }
 
-    view = metrics_df[["scenario", "model", "split", "mae_mean", "mape_mean", "r2_mean"]].copy()
-    if view.empty:
-        return
+    pred_out = test_df[["timestamp", "service", "source_file", "experiment_users", TARGET_COL]].copy()
+    pred_out["pred_case1"] = pred_case1
+    pred_out["pred_case2_user15"] = pred_case2
+    pred_out.to_csv(OUTPUT_DIR / "cpu_predictions_test.csv", index=False)
 
-    for metric in ["mae_mean", "mape_mean", "r2_mean"]:
-        plt.figure(figsize=(11, 5))
-        sns.barplot(data=view, x="scenario", y=metric, hue="split")
-        plt.title(f"Train vs Test: {metric}")
-        plt.tight_layout()
-        plt.savefig(plots_dir / f"train_vs_test_{metric}.png", dpi=160)
-        plt.close()
+    with open(OUTPUT_DIR / "cpu_eval_summary.json", "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2)
 
-
-def plot_actual_vs_pred_residuals(pred_df: pd.DataFrame, output_dir: Path, scenario: str, model: str) -> None:
-    plots_dir = output_dir / "plots"
-    plots_dir.mkdir(parents=True, exist_ok=True)
-
-    fig, axes = plt.subplots(1, len(TARGET_COLS), figsize=(6 * len(TARGET_COLS), 5))
-    for i, t in enumerate(TARGET_COLS):
-        ax = axes[i]
-        x = pred_df[f"actual_{t}"].to_numpy()
-        y = pred_df[f"pred_{t}"].to_numpy()
-        ax.scatter(x, y, alpha=0.6)
-        lo = min(float(np.min(x)), float(np.min(y)))
-        hi = max(float(np.max(x)), float(np.max(y)))
-        ax.plot([lo, hi], [lo, hi], linestyle="--")
-        ax.set_title(f"Actual vs Predicted: {t}")
-    fig.tight_layout()
-    fig.savefig(plots_dir / f"actual_vs_predicted_{scenario}_{model}.png", dpi=160)
-    plt.close(fig)
-
-    fig, axes = plt.subplots(1, len(TARGET_COLS), figsize=(6 * len(TARGET_COLS), 5))
-    for i, t in enumerate(TARGET_COLS):
-        ax = axes[i]
-        residuals = pred_df[f"err_{t}"].to_numpy()
-        sns.histplot(residuals, bins=30, kde=True, ax=ax)
-        ax.set_title(f"Residuals: {t}")
-    fig.tight_layout()
-    fig.savefig(plots_dir / f"residuals_{scenario}_{model}.png", dpi=160)
-    plt.close(fig)
+    print("Training complete (simple regression mode).")
+    print(f"Train users: {sorted(TRAIN_USERS)}")
+    print(f"Test users: {sorted(TEST_USERS)}")
+    print(f"Case 1 (users 4/7)    -> MAE: {mae_case1:.6f}, MAPE: {mape_case1:.4f}%")
+    print(f"Case 2 (sim user=15)  -> MAE: {mae_case2:.6f}, MAPE: {mape_case2:.4f}%")
+    print(f"Saved: {(OUTPUT_DIR / 'cpu_eval_summary.json').resolve()}")
+    print(f"Saved: {(OUTPUT_DIR / 'cpu_predictions_test.csv').resolve()}")
 
 
 def main() -> None:
-
-    out_dir = Path("output")
-    data_dir = Path("../data_collection")
-    config_test_size = 0.25
-    interp_test_size = 0.2
-    extrap_quantile = 0.8
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    raw = load_dataset(data_dir)
-    data = clean_and_engineer(raw)
-
-    traffic_features, config_features, categorical_features = choose_feature_columns(data)
-    feature_cols = traffic_features + config_features + categorical_features
-    numeric_cols = traffic_features + config_features
-
-    data = data.dropna(subset=feature_cols + TARGET_COLS).copy()
-
-    plot_core_eda(data, out_dir)
-
-    # Phase 4 scenarios.
-    cfg_train, cfg_test = split_config_generalization(data, test_size=config_test_size)
-    interp_train, interp_test = split_interpolation(cfg_train, test_size=interp_test_size)
-    extrap_train, extrap_test = split_extrapolation(cfg_train, quantile_threshold=extrap_quantile)
-
-    scenarios = {
-        "configuration_generalization": (cfg_train, cfg_test),
-        "interpolation": (interp_train, interp_test),
-        "extrapolation": (extrap_train, extrap_test),
-    }
-    plot_split_sizes(scenarios, out_dir)
-
-    models = {
-        "linear_regression": LinearRegression(),
-        "random_forest": RandomForestRegressor(
-            n_estimators=400,
-            random_state=RANDOM_STATE,
-            min_samples_leaf=2,
-            n_jobs=-1,
-        ),
-    }
-
-    metric_rows = []
-    load_rows = []
-    artifact_models: Dict[str, Pipeline] = {}
-    prediction_store: Dict[Tuple[str, str], pd.DataFrame] = {}
-
-    for scenario_name, (train_df, test_df) in scenarios.items():
-        if len(train_df) < 20 or len(test_df) < 10:
-            continue
-
-        y_true_test = test_df[TARGET_COLS].to_numpy(dtype=float)
-        y_true_train = train_df[TARGET_COLS].to_numpy(dtype=float)
-
-        for model_name, estimator in models.items():
-            pred_train, pred_test, fitted = train_and_predict(
-                model_name,
-                estimator,
-                train_df,
-                test_df,
-                feature_cols=feature_cols,
-                numeric_cols=numeric_cols,
-                categorical_cols=categorical_features,
-            )
-
-            metrics_train = evaluate(y_true_train, pred_train, TARGET_COLS)
-            metrics_test = evaluate(y_true_test, pred_test, TARGET_COLS)
-            metric_rows.append(
-                {
-                    "scenario": scenario_name,
-                    "model": model_name,
-                    "split": "train",
-                    "n_train": int(len(train_df)),
-                    "n_test": int(len(test_df)),
-                    **metrics_train,
-                }
-            )
-            metric_rows.append(
-                {
-                    "scenario": scenario_name,
-                    "model": model_name,
-                    "split": "test",
-                    "n_train": int(len(train_df)),
-                    "n_test": int(len(test_df)),
-                    **metrics_test,
-                }
-            )
-
-            pred_df = test_df[["timestamp", "service", "source_file", "request_rate", "load_scenario", "config_signature"]].copy()
-            for i, t in enumerate(TARGET_COLS):
-                pred_df[f"actual_{t}"] = y_true_test[:, i]
-                pred_df[f"pred_{t}"] = pred_test[:, i]
-                pred_df[f"err_{t}"] = pred_df[f"actual_{t}"] - pred_df[f"pred_{t}"]
-            pred_df.to_csv(out_dir / f"predictions_{scenario_name}_{model_name}.csv", index=False)
-            prediction_store[(scenario_name, model_name)] = pred_df
-
-            load_df = evaluate_load_scenarios(test_df, pred_test, model_name, scenario_name)
-            load_rows.append(load_df)
-
-            if scenario_name == "configuration_generalization":
-                artifact_models[model_name] = fitted
-
-    metrics_df = pd.DataFrame(metric_rows)
-    if metrics_df.empty:
-        raise RuntimeError("No scenario produced enough train/test samples. Check split parameters.")
-
-    load_metrics_df = pd.concat(load_rows, ignore_index=True) if load_rows else pd.DataFrame()
-
-    # Select best regression model by configuration-generalization test MAPE mean.
-    cfg_eval = metrics_df[(metrics_df["scenario"] == "configuration_generalization") & (metrics_df["split"] == "test")].copy()
-    if cfg_eval.empty:
-        cfg_eval = metrics_df[metrics_df["split"] == "test"].copy()
-
-    best_row = cfg_eval.sort_values(["mape_mean", "mae_mean"], ascending=[True, True]).iloc[0]
-    best_model_name = str(best_row["model"])
-
-    if best_model_name in artifact_models:
-        joblib.dump(artifact_models[best_model_name], out_dir / "best_model.joblib")
-
-    metrics_df.to_csv(out_dir / "phase4_metrics_summary.csv", index=False)
-    if not load_metrics_df.empty:
-        load_metrics_df.to_csv(out_dir / "phase4_load_scenario_metrics.csv", index=False)
-
-    plot_phase4_summary(metrics_df, out_dir)
-    plot_train_vs_test(metrics_df, out_dir)
-    best_pred_df = prediction_store.get(("configuration_generalization", best_model_name))
-    if best_pred_df is not None:
-        plot_actual_vs_pred_residuals(best_pred_df, out_dir, "configuration_generalization", best_model_name)
-
-    summary = {
-        "pipeline": "Regression only",
-        "targets": TARGET_COLS,
-        "features": {
-            "traffic": traffic_features,
-            "configuration": config_features,
-            "categorical": categorical_features,
-        },
-        "splits": {
-            "configuration_generalization": {
-                "train_rows": int(len(cfg_train)),
-                "test_rows": int(len(cfg_test)),
-            },
-            "interpolation": {
-                "train_rows": int(len(interp_train)),
-                "test_rows": int(len(interp_test)),
-            },
-            "extrapolation": {
-                "train_rows": int(len(extrap_train)),
-                "test_rows": int(len(extrap_test)),
-                "extrapolation_quantile": float(extrap_quantile),
-            },
-        },
-        "selected_model": best_model_name,
-        "selection_basis": "Lowest MAPE mean on configuration-generalization scenario",
-        "best_row": best_row.to_dict(),
-    }
-
-    with open(out_dir / "run_summary.json", "w", encoding="utf-8") as f:
-        json.dump(summary, f, indent=2)
-
-    print("Regression pipeline complete.")
-    print(f"Selected model: {best_model_name}")
-    print(metrics_df.to_string(index=False))
-    print(f"Artifacts: {out_dir.resolve()}")
+    data = load_data(DATA_DIR)
+    train_and_evaluate(data)
 
 
 if __name__ == "__main__":
