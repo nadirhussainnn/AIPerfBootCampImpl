@@ -14,11 +14,14 @@ kubectl -n default rollout status deploy/task1-deployment --timeout=10m
 kubectl -n default rollout status deploy/task2-deployment --timeout=10m
 kubectl -n default rollout status deploy/task3-deployment --timeout=10m
 
-
+python3 train_regression.py \
+  --data-dir data_collection \
+  --target avg_latency \
+  --output-dir output
 
 kubectl -n default get deploy task1-deployment task2-deployment task3-deployment -w
 
-python3 locust/run_gradual_workload.py --only-user 2 --only-replica 1
+python3 locust/run_gradual_workload.py --only-user 3 --only-replica 3
 
 # run after 30 min
 ( sleep 1800; python3 locust/run_gradual_workload.py --only-user 4 --only-replica 2 ) > locust/logs/gradual/schedule_u4_r2.log 2>&1 &

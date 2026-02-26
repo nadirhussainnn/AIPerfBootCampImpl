@@ -1,0 +1,10 @@
+Starting data collection for users=4, replicas=3, duration=2400s
+[2026-02-26 12:54:20] task1 logged to task1_4_3.csv
+[2026-02-26 12:54:20] task2 logged to task2_4_3.csv
+[2026-02-26 12:54:20] task3 logged to task3_4_3.csv
+Traceback (most recent call last):
+  File "/Users/nadirhussain/iCloud Drive (Archive)/Desktop/MS/Bootcamp/bank-of-anthos/code/Fork/AIPerfBootCampImpl/data_collection/script.py", line 150, in <module>
+    main()
+  File "/Users/nadirhussain/iCloud Drive (Archive)/Desktop/MS/Bootcamp/bank-of-anthos/code/Fork/AIPerfBootCampImpl/data_collection/script.py", line 144, in main
+    time.sleep(min(INTERVAL_SEC, remaining))
+KeyboardInterrupt
