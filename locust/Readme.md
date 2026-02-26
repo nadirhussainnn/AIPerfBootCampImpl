@@ -9,6 +9,15 @@ python3 locust/run_gradual_workload.py --users-start 1 --users-end 2
 python3 locust/run_gradual_workload.py --only-user 1 --only-replica 1
 ```
 
+kubectl -n default scale deploy/task1-deployment deploy/task2-deployment deploy/task3-deployment --replicas=1
+kubectl -n default rollout status deploy/task1-deployment --timeout=10m
+kubectl -n default rollout status deploy/task2-deployment --timeout=10m
+kubectl -n default rollout status deploy/task3-deployment --timeout=10m
+
+
+
+kubectl -n default get deploy task1-deployment task2-deployment task3-deployment -w
+
 python3 locust/run_gradual_workload.py --only-user 2 --only-replica 1
 
 # run after 30 min

@@ -6,7 +6,7 @@ import signal
 import subprocess
 import sys
 import time
-from typing import List
+from typing import List, TextIO
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(SCRIPT_DIR)
@@ -123,6 +123,13 @@ def target_paths(users: int, replicas: int) -> List[str]:
     return paths
 
 
+def data_collection_paths(users: int, replicas: int) -> List[str]:
+    return [
+        os.path.join(DATA_COLLECTION_OUTPUT_DIR, f"{service}_{users}_{replicas}.csv")
+        for service in SERVICES
+    ]
+
+
 def all_files_present_and_nonempty(paths: List[str]) -> bool:
     return all(os.path.exists(path) and os.path.getsize(path) > 0 for path in paths)
 
@@ -158,7 +165,7 @@ def terminate_stale_collectors(users: int, replicas: int) -> None:
             pass
 
 
-def start_data_collection(users: int, replicas: int, overwrite: bool) -> subprocess.Popen:
+def start_data_collection(users: int, replicas: int, overwrite: bool) -> tuple[subprocess.Popen, TextIO, str]:
     cmd = [
         sys.executable,
         DATA_COLLECTION_SCRIPT,
@@ -173,11 +180,16 @@ def start_data_collection(users: int, replicas: int, overwrite: bool) -> subproc
     ]
     if overwrite:
         cmd.append("--overwrite")
-    return subprocess.Popen(cmd)
+    log_path = os.path.join(OUTPUT_DIR, f"collector_u{users}_r{replicas}.log")
+    log_file = open(log_path, "a")
+    proc = subprocess.Popen(cmd, stdout=log_file, stderr=log_file, text=True)
+    return proc, log_file, log_path
 
 
-def stop_data_collection(proc: subprocess.Popen | None) -> None:
+def stop_data_collection(proc: subprocess.Popen | None, log_file: TextIO | None) -> None:
     if proc is None or proc.poll() is not None:
+        if log_file is not None and not log_file.closed:
+            log_file.close()
         return
 
     proc.terminate()
@@ -186,6 +198,9 @@ def stop_data_collection(proc: subprocess.Popen | None) -> None:
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait(timeout=10)
+    finally:
+        if log_file is not None and not log_file.closed:
+            log_file.close()
 
 
 def parse_args() -> argparse.Namespace:
@@ -238,6 +253,8 @@ def main() -> None:
             temp_prefix = os.path.join(OUTPUT_DIR, f"tmp_{run_id}")
             files = target_paths(users, replicas)
             collector_proc = None
+            collector_log_file = None
+            collector_log_path = ""
 
             print(f"\n=== Experiment {run_id} | duration={RUN_TIME} ===")
 
@@ -260,20 +277,41 @@ def main() -> None:
                 reset_to_defaults()
                 scale_deployments(NAMESPACE, DEPLOYMENTS, replicas)
                 terminate_stale_collectors(users, replicas)
-                collector_proc = start_data_collection(users, replicas, overwrite=args.force)
+                collector_proc, collector_log_file, collector_log_path = start_data_collection(
+                    users, replicas, overwrite=args.force
+                )
 
                 run_one_experiment(users=users, csv_prefix=temp_prefix)
-
-                if collector_proc.poll() is None:
-                    collector_proc.wait(timeout=180)
-
+                # Persist final experiment files as soon as Locust finishes.
                 create_named_result_files(temp_prefix=temp_prefix, users=users, replicas=replicas)
                 cleanup_temp_locust_files(temp_prefix)
+
+                if collector_proc.poll() is not None and collector_proc.returncode != 0:
+                    raise RuntimeError(
+                        f"Data collector exited early with code {collector_proc.returncode}. "
+                        f"See log: {collector_log_path}"
+                    )
+                if collector_proc.poll() is None:
+                    collector_proc.wait(timeout=180)
+                if collector_proc.returncode not in (0, None):
+                    raise RuntimeError(
+                        f"Data collector failed with code {collector_proc.returncode}. "
+                        f"See log: {collector_log_path}"
+                    )
+                if not all_files_present_and_nonempty(data_collection_paths(users, replicas)):
+                    raise RuntimeError(
+                        f"Missing data_collection CSV(s) for u{users}_r{replicas}. "
+                        f"See log: {collector_log_path}"
+                    )
                 print(f"Experiment {run_id} completed successfully.")
                 completed += 1
             except subprocess.TimeoutExpired:
-                print(f"Experiment {run_id} failed: data collector did not exit on time.")
-                failed += 1
+                # Collector timeout after Locust completion should not drop data.
+                print(f"Experiment {run_id} warning: data collector did not exit on time.")
+                if all_files_present_and_nonempty(target_paths(users, replicas)):
+                    completed += 1
+                else:
+                    failed += 1
             except FileNotFoundError as err:
                 print(f"Experiment {run_id} failed: missing file/command -> {err.filename}")
                 failed += 1
@@ -284,7 +322,7 @@ def main() -> None:
                 print(f"Experiment {run_id} failed with unexpected error: {err}")
                 failed += 1
             finally:
-                stop_data_collection(collector_proc)
+                stop_data_collection(collector_proc, collector_log_file)
 
                 print(f"Resetting all deployments to {RESET_REPLICAS} replica(s)")
                 try:
