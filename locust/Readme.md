@@ -28,27 +28,27 @@ jobs -p | xargs kill
 jobs -l
 
 # 3) reschedule with "kill running first" logic
-( sleep 180; \
-  pkill -f "python3 locust/run_gradual_workload.py"; \
-  pkill -f "python3 data_collection/script.py"; \
-  pkill -f "python3 -m locust"; \
-  python3 locust/run_gradual_workload.py --only-user 4 --only-replica 2 \
-) > locust/logs/gradual/schedule_u4_r2.log 2>&1 &
 
-( sleep 3200; \
-  pkill -f "python3 locust/run_gradual_workload.py"; \
-  pkill -f "python3 data_collection/script.py"; \
-  pkill -f "python3 -m locust"; \
-  python3 locust/run_gradual_workload.py --only-user 5 --only-replica 2 \
-) > locust/logs/gradual/schedule_u5_r2.log 2>&1 &
+nohup sh -c '
+  sleep 30
+  pkill -f "python3 locust/run_gradual_workload.py" || true
+  pkill -f "python3 data_collection/script.py" || true
+  pkill -f "python3 -m locust" || true
+  python3 locust/run_gradual_workload.py --only-user 4 --only-replica 2
 
-( sleep 6400; \
-  pkill -f "python3 locust/run_gradual_workload.py"; \
-  pkill -f "python3 data_collection/script.py"; \
-  pkill -f "python3 -m locust"; \
-  python3 locust/run_gradual_workload.py --only-user 5 --only-replica 3 \
-) > locust/logs/gradual/schedule_u5_r3.log 2>&1 &
+  sleep 3000
+  pkill -f "python3 locust/run_gradual_workload.py" || true
+  pkill -f "python3 data_collection/script.py" || true
+  pkill -f "python3 -m locust" || true
+  python3 locust/run_gradual_workload.py --only-user 5 --only-replica 2
 
+  sleep 6200
+  pkill -f "python3 locust/run_gradual_workload.py" || true
+  pkill -f "python3 data_collection/script.py" || true
+  pkill -f "python3 -m locust" || true
+  python3 locust/run_gradual_workload.py --only-user 5 --only-replica 3
+' > locust/logs/gradual/schedule_master.log 2>&1 < /dev/null &
+disown
 
 # Running data collector
 ```
