@@ -1,0 +1,13 @@
+deployment.apps/task1-deployment scaled
+deployment.apps/task2-deployment scaled
+deployment.apps/task3-deployment scaled
+deployment "task1-deployment" successfully rolled out
+deployment "task2-deployment" successfully rolled out
+deployment "task3-deployment" successfully rolled out
+[2026-02-26 02:10:59,041] Nadirs-MacBook-Pro/INFO/locust.main: Starting Locust 2.43.3
+[2026-02-26 02:10:59,042] Nadirs-MacBook-Pro/INFO/locust.main: Run time limit set to 2400 seconds
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                         0     0(0.00%) |      0       0       0      0 |    0.00        0.00
+

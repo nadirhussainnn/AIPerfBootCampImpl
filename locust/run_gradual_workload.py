@@ -159,6 +159,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+
 def main() -> None:
     args = parse_args()
     if args.users_start > args.users_end:
