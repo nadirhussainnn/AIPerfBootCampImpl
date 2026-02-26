@@ -1,5 +1,4 @@
 timestamp,service,endpoint,replicas,cpu_limit,cpu_request,memory_limit,memory_request,request_rate,p50_latency,p95_latency,p99_latency,avg_latency,throughput,cpu_usage
-2026-02-26 01:04:51,task1,/,1.0,6.0,2.0,3072.0,3072.0,0.0,nan,nan,nan,nan,0.0,0.0
 2026-02-26 01:06:51,task1,/,2.0,6.0,2.0,3072.0,3072.0,0.6,734.76,973.48,994.7,632.21,0.6,0.27
 2026-02-26 01:08:52,task1,/,2.0,6.0,2.0,3072.0,3072.0,0.58,750.0,975.0,995.0,696.8,0.58,0.31
 2026-02-26 01:10:52,task1,/,2.0,6.0,2.0,3072.0,3072.0,0.58,750.0,975.0,995.0,700.08,0.58,0.27
