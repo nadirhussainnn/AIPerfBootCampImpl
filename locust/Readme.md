@@ -11,6 +11,44 @@ python3 locust/run_gradual_workload.py --only-user 1 --only-replica 1
 
 python3 locust/run_gradual_workload.py --only-user 2 --only-replica 1
 
+# run after 30 min
+( sleep 1800; python3 locust/run_gradual_workload.py --only-user 4 --only-replica 2 ) > locust/logs/gradual/schedule_u4_r2.log 2>&1 &
+
+# run after 30+50 = 80 min
+( sleep 4800; python3 locust/run_gradual_workload.py --only-user 5 --only-replica 2 ) > locust/logs/gradual/schedule_u5_r2.log 2>&1 &
+
+# run after 30+50+50 = 130 min
+( sleep 7800; python3 locust/run_gradual_workload.py --only-user 5 --only-replica 3 ) > locust/logs/gradual/schedule_u5_r3.log 2>&1 &
+
+
+# 1) remove all currently scheduled background jobs
+jobs -p | xargs kill
+
+# 2) confirm none remain
+jobs -l
+
+# 3) reschedule with "kill running first" logic
+( sleep 180; \
+  pkill -f "python3 locust/run_gradual_workload.py"; \
+  pkill -f "python3 data_collection/script.py"; \
+  pkill -f "python3 -m locust"; \
+  python3 locust/run_gradual_workload.py --only-user 4 --only-replica 2 \
+) > locust/logs/gradual/schedule_u4_r2.log 2>&1 &
+
+( sleep 3200; \
+  pkill -f "python3 locust/run_gradual_workload.py"; \
+  pkill -f "python3 data_collection/script.py"; \
+  pkill -f "python3 -m locust"; \
+  python3 locust/run_gradual_workload.py --only-user 5 --only-replica 2 \
+) > locust/logs/gradual/schedule_u5_r2.log 2>&1 &
+
+( sleep 6400; \
+  pkill -f "python3 locust/run_gradual_workload.py"; \
+  pkill -f "python3 data_collection/script.py"; \
+  pkill -f "python3 -m locust"; \
+  python3 locust/run_gradual_workload.py --only-user 5 --only-replica 3 \
+) > locust/logs/gradual/schedule_u5_r3.log 2>&1 &
+
 
 # Running data collector
 ```
