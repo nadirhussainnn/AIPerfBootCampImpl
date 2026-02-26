@@ -2,8 +2,13 @@
 
 ```
 python3 locust/run_gradual_workload.py --users-start 1 --users-end 2
-
 ```
+
+- For single step, we can run
+```
+python3 locust/run_gradual_workload.py --only-user 1 --only-replica 1
+```
+
 
 # Running data collector
 ```
