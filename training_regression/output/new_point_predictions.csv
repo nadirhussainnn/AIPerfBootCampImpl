@@ -1,0 +1,7 @@
+model,scenario,concurrent_users,predicted_cpu_usage
+linear_regression,new_user11_normal,11,0.57
+linear_regression,new_user12_medium,12,0.99
+linear_regression,new_user15_high,15,1.65
+random_forest,new_user11_normal,11,0.56
+random_forest,new_user12_medium,12,0.89
+random_forest,new_user15_high,15,1.25

@@ -7,10 +7,3 @@ __pycache__/
 venv/
 training_regression/.venv/
 training_regression/venv/
-
-# Training outputs and model artifacts (do not push)
-training_regression/output/
-training_regression/output_*/
-training_regression/**/*.joblib
-training_regression/**/*.keras
-training_regression/**/*.h5

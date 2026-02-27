@@ -1,0 +1,54 @@
+{
+  "target": "cpu_usage",
+  "feature_cols": [
+    "request_rate",
+    "request_rate_lag_1",
+    "request_rate_lag_2",
+    "cpu_usage_lag_1",
+    "cpu_usage_lag_2"
+  ],
+  "train_users": [
+    1,
+    2,
+    3,
+    5,
+    6,
+    8,
+    9,
+    10
+  ],
+  "test_users": [
+    4,
+    7
+  ],
+  "n_train": 1416,
+  "n_test": 354,
+  "models_tested": [
+    "linear_regression",
+    "random_forest"
+  ],
+  "metrics": {
+    "case1_users_4_7": {
+      "linear_regression": {
+        "mae": 0.06,
+        "mape": 15.06
+      },
+      "random_forest": {
+        "mae": 0.07,
+        "mape": 13.64
+      }
+    },
+    "case2_simulated_user15_traffic_scale": {
+      "linear_regression": {
+        "mae": 0.11,
+        "mape": 93.21
+      },
+      "random_forest": {
+        "mae": 0.4,
+        "mape": 88.4
+      }
+    }
+  },
+  "best_model_case1_by_mae": "linear_regression",
+  "note": "Case 2 simulates user=15 by scaling traffic features because user-15 CSV is not loaded."
+}

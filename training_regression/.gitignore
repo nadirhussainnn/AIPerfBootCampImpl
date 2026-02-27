@@ -5,7 +5,3 @@ venv/
 # Python cache
 __pycache__/
 *.pyc
-
-# Training outputs/artifacts
-output/
-output_*/

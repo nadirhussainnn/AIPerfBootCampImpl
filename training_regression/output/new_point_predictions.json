@@ -1,0 +1,38 @@
+[
+  {
+    "model": "linear_regression",
+    "scenario": "new_user11_normal",
+    "concurrent_users": 11,
+    "predicted_cpu_usage": 0.57
+  },
+  {
+    "model": "linear_regression",
+    "scenario": "new_user12_medium",
+    "concurrent_users": 12,
+    "predicted_cpu_usage": 0.99
+  },
+  {
+    "model": "linear_regression",
+    "scenario": "new_user15_high",
+    "concurrent_users": 15,
+    "predicted_cpu_usage": 1.65
+  },
+  {
+    "model": "random_forest",
+    "scenario": "new_user11_normal",
+    "concurrent_users": 11,
+    "predicted_cpu_usage": 0.56
+  },
+  {
+    "model": "random_forest",
+    "scenario": "new_user12_medium",
+    "concurrent_users": 12,
+    "predicted_cpu_usage": 0.89
+  },
+  {
+    "model": "random_forest",
+    "scenario": "new_user15_high",
+    "concurrent_users": 15,
+    "predicted_cpu_usage": 1.25
+  }
+]

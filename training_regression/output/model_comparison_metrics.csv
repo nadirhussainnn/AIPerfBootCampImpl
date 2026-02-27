@@ -1,0 +1,5 @@
+model,case,mae,mape
+linear_regression,case1_users_4_7,0.06,15.06
+linear_regression,case2_simulated_user15_traffic_scale,0.11,93.21
+random_forest,case1_users_4_7,0.07,13.64
+random_forest,case2_simulated_user15_traffic_scale,0.4,88.4
